@@ -9,6 +9,7 @@ import org.example.takeaway.service.UserService;
 import org.example.takeaway.utils.SMSUtils;
 import org.example.takeaway.utils.ValidateCodeUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 @RestController
 @RequestMapping("/user")
@@ -25,6 +27,9 @@ public class UserController {
 
     @Autowired
     private UserService userService;
+
+    @Autowired
+    private RedisTemplate redisTemplate;
 
     /**
      * 发送手机验证码
@@ -39,6 +44,7 @@ public class UserController {
             log.info("code={}", code);
             SMSUtils.sendMessage("ruiji", "SMS_461860872", phone, code);
             httpSession.setAttribute(phone, code);
+            redisTemplate.opsForValue().set(phone, code, 2, TimeUnit.MINUTES);
             return R.success("验证码发送成功");
         }
 
@@ -55,10 +61,12 @@ public class UserController {
     public R<User> login(@RequestBody Map map, HttpSession httpSession){
         String phone = (String) map.get("phone");
         String code = (String) map.get("code");
-        Object codeinsession = httpSession.getAttribute(phone);
-        if (codeinsession != null && codeinsession.equals(code)){
+//        Object codeinsession = httpSession.getAttribute(phone);
+        Object codeinRedis = redisTemplate.opsForValue().get(phone);
+        if (codeinRedis != null && codeinRedis.equals(code)){
             LambdaQueryWrapper<User> queryWrapper = new LambdaQueryWrapper<>();
             queryWrapper.eq(User::getPhone, phone);
+
             User user = userService.getOne(queryWrapper);
             if(user == null){
                 user = new User();
@@ -67,6 +75,8 @@ public class UserController {
                 userService.save(user);
             }
             httpSession.setAttribute("user", user.getId());
+
+            redisTemplate.delete(phone);
             return R.success(user);
         }
 
